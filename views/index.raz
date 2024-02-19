@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>@Model.title</title>
+    <link rel="stylesheet" href="c3.css" />
+</head>
+
+<body>
+    <h2>@Model.title</h2>
+    <div id="chart"></div>
+
+</body>
+<script src="dist/d3.js"></script>
+<script src="c3.js"></script>
+
+<script>
+    var chart = c3.generate({
+        data: {
+            columns: [
+
+            ]
+        },
+        axis: {
+            x: {
+                tick: {
+                    format: function (d) { return d.toFixed(2); }
+                }
+            }
+        },
+        transition: {
+            duration: 0
+        }
+    });
+
+    let data = {
+
+    }
+
+    let allowRefresh = true;
+    let xs = {
+
+    }
+    setInterval(() => {
+        chart.load({
+            xs,
+            columns: Object.keys(data).map(key => {
+                return [key, ...data[key]]
+            }),
+            type: "line"
+        });
+    }, 50);
+    let t_limit = 5;
+
+
+    function connectToSocket() {
+        if (window.socket) return;
+        let socket = window.socket = new WebSocket("ws://" + location.host + "/ws");
+        socket.onopen = function (e) {
+            console.log("[open] Connection established");
+        };
+
+        socket.onmessage = function (event) {
+            let msg = (JSON.parse(event.data));
+            let time = msg.time;
+            let time_s = time.seconds + time.nanoseconds * 1e-9;
+            if (!window.t0)
+                window.t0 = time_s;
+            time_s -= window.t0;
+            let topics = msg.data;
+
+            for (var topic in topics) {
+                data[topic] = data[topic] || []
+                data[topic + ".ts"] = data[topic + ".ts"] || []
+
+                data[topic].push(topics[topic]);
+                data[topic + ".ts"].push(time_s);
+
+                data[topic + ".ts"] = data[topic + ".ts"].filter(x => x > time_s - t_limit);
+                if (data[topic].length > data[topic + ".ts"].length) {
+                    data[topic].splice(0, data[topic].length - data[topic + ".ts"].length)
+                }
+                xs[topic] = topic + ".ts";
+            }
+
+            for(var data_line_key in data)
+            {
+                if(data_line_key.endsWith(".ts")) continue;
+                let topic = data_line_key;
+                data[topic + ".ts"] = data[topic + ".ts"].filter(x => x > time_s - t_limit);
+                if (data[topic].length > data[topic + ".ts"].length) {
+                    data[topic].splice(0, data[topic].length - data[topic + ".ts"].length)
+                }
+            }
+        };
+
+        socket.onclose = function (event) {
+            if (event.wasClean) {
+                console.log(`[close] Connection closed cleanly, code=${event.code} reason=${event.reason}`);
+            } else {
+                // e.g. server process killed or network down
+                // event.code is usually 1006 in this case
+                console.error('[close] Connection died');
+            }
+            delete window.socket;
+        };
+    }
+    setInterval(connectToSocket, 1000);
+</script>
+
+</html>
